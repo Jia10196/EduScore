@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WriteBoost - 智能英语写作提升助手</title>
+<title>EduScore - 智能英语写作提升助手</title>
 <meta name="description" content="免费AI英语写作批改工具，支持四六级、雅思、托福评分标准">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✍</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -468,7 +468,7 @@ body::before {
 <div class="welcome-screen" id="welcome-screen">
   <div class="welcome-card">
     <div class="welcome-logo">✍</div>
-    <h1>WriteBoost</h1>
+    <h1>EduScore</h1>
     <p class="subtitle">AI 驱动的英语写作提升助手<br>支持四六级 · 雅思 · 托福评分标准</p>
     <div class="welcome-features">
       <div class="welcome-feature"><span>✏️</span>语法诊断<br>47种错误类型识别</div>
@@ -487,7 +487,7 @@ body::before {
 <header class="header">
   <div class="logo">
     <div class="logo-icon">✍</div>
-    <span>WriteBoost</span>
+    <span>EduScore</span>
   </div>
   <div class="header-controls">
     <select class="exam-select" id="exam-type">
@@ -633,7 +633,11 @@ body::before {
       </div>
     </details>
 
+    <div id="test-result" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:8px;font-size:12px;line-height:1.6;"></div>
+
     <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="testConnection()" id="test-btn">🧪 测试连接</button>
+      <div style="flex:1;"></div>
       <button class="btn btn-ghost" onclick="closeSettings()">取消</button>
       <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
     </div>
@@ -649,7 +653,7 @@ body::before {
 //  填入后所有用户打开网页即可直接使用，无需任何配置
 // ================================================================
 const BUILTIN_PROVIDER = 'groq';  // 可选: 'groq', 'siliconflow', 'openrouter'
-const BUILTIN_KEY = '';            // ← 把你的 API Key 粘贴到这里的引号中
+const BUILTIN_KEY = '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';            // ← 把你的 API Key 粘贴到这里的引号中
 // ================================================================
 
 let currentProvider = BUILTIN_PROVIDER;
@@ -788,6 +792,51 @@ function saveSettings() {
   showToast('✅ 设置已保存');
 }
 
+async function testConnection() {
+  const testKey = document.getElementById('api-key').value.trim();
+  const resultDiv = document.getElementById('test-result');
+  const testBtn = document.getElementById('test-btn');
+
+  if (!testKey) {
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = 'rgba(239,68,68,0.1)';
+    resultDiv.style.border = '1px solid rgba(239,68,68,0.3)';
+    resultDiv.style.color = 'var(--accent-red)';
+    resultDiv.textContent = '❌ 请先填入 API Key';
+    return;
+  }
+
+  testBtn.disabled = true;
+  testBtn.textContent = '⏳ 测试中...';
+  resultDiv.style.display = 'block';
+  resultDiv.style.background = 'rgba(59,130,246,0.1)';
+  resultDiv.style.border = '1px solid rgba(59,130,246,0.3)';
+  resultDiv.style.color = 'var(--accent-blue)';
+  resultDiv.textContent = '正在连接 API...';
+
+  // 临时使用输入框中的 key
+  const origKey = userKeys[currentProvider];
+  userKeys[currentProvider] = testKey;
+
+  try {
+    const result = await callLLM('Reply with exactly: OK', 'Say OK');
+    resultDiv.style.background = 'rgba(16,185,129,0.1)';
+    resultDiv.style.border = '1px solid rgba(16,185,129,0.3)';
+    resultDiv.style.color = 'var(--accent-green)';
+    resultDiv.innerHTML = '✅ <strong>连接成功！</strong>API Key 有效，可以正常使用。点击「保存设置」后即可开始分析。';
+  } catch(e) {
+    resultDiv.style.background = 'rgba(239,68,68,0.1)';
+    resultDiv.style.border = '1px solid rgba(239,68,68,0.3)';
+    resultDiv.style.color = 'var(--accent-red)';
+    resultDiv.innerHTML = '❌ <strong>连接失败：</strong>' + escapeHtml(e.message);
+  } finally {
+    // 恢复原 key（用户可能还没保存）
+    userKeys[currentProvider] = origKey;
+    testBtn.disabled = false;
+    testBtn.textContent = '🧪 测试连接';
+  }
+}
+
 // Sample
 function loadSample() {
   document.getElementById('essay-input').value = `In recent years, the number of people who use internet has increased dramatically. Many people think that internet has bring many benefits to our life, while others believe it has some negative effects.
@@ -801,32 +850,97 @@ In my opinion, I think internet is very important in modern society. We should u
 }
 
 // LLM
+// CORS 代理列表（本地打开 HTML 文件时浏览器会阻止跨域请求，需要代理中转）
+const CORS_PROXIES = [
+  '', // 先尝试直连
+  'https://api.allorigins.win/raw?url=',
+  'https://corsproxy.io/?',
+];
+let workingProxyIndex = 0; // 记住上次成功的代理
+
 async function callLLM(systemPrompt, userPrompt) {
   const key = getActiveKey();
   if (!key) throw new Error('请先配置 API Key（点击右上角 ⚙ 按钮）');
 
   const prov = PROVIDERS[currentProvider];
+  const bodyStr = JSON.stringify({
+    model: prov.model,
+    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+    temperature: 0.3, max_tokens: 4000
+  });
+
   const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key };
   if (currentProvider === 'openrouter') {
     headers['HTTP-Referer'] = window.location.href;
-    headers['X-Title'] = 'WriteBoost';
+    headers['X-Title'] = 'EduScore';
   }
 
-  const resp = await fetch(prov.url, {
-    method: 'POST', headers,
-    body: JSON.stringify({
-      model: prov.model,
-      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-      temperature: 0.3, max_tokens: 4000
-    })
-  });
+  // 从上次成功的代理开始尝试
+  const proxyOrder = [
+    ...CORS_PROXIES.slice(workingProxyIndex),
+    ...CORS_PROXIES.slice(0, workingProxyIndex)
+  ];
 
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`API 错误 (${resp.status}): ${err.substring(0, 200)}`);
+  let lastError = null;
+  for (let i = 0; i < proxyOrder.length; i++) {
+    const proxy = proxyOrder[i];
+    const fetchUrl = proxy ? proxy + encodeURIComponent(prov.url) : prov.url;
+    try {
+      const resp = await fetch(fetchUrl, {
+        method: 'POST', headers, body: bodyStr
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => '无法读取错误信息');
+        // 具体错误诊断
+        if (resp.status === 401) {
+          throw new Error('API Key 无效或已过期。请到 ⚙ 设置中检查你的 Key 是否正确。');
+        } else if (resp.status === 429) {
+          throw new Error('请求太频繁（超出 Groq 免费限额）。请等待 1 分钟后再试。');
+        } else if (resp.status === 413) {
+          throw new Error('作文太长，超出模型上下文限制。请缩短作文后重试。');
+        } else if (resp.status >= 500) {
+          throw new Error(`Groq 服务器暂时不可用 (${resp.status})，请稍后再试。`);
+        }
+        throw new Error(`API 返回错误 (${resp.status}): ${errText.substring(0, 150)}`);
+      }
+
+      const data = await resp.json();
+      if (!data.choices || !data.choices[0]) {
+        throw new Error('API 返回了意外格式的数据。请稍后重试。');
+      }
+      // 记住成功的代理
+      workingProxyIndex = CORS_PROXIES.indexOf(proxy);
+      return data.choices[0].message.content;
+
+    } catch(e) {
+      lastError = e;
+      // 如果是明确的 API 错误（非网络问题），不再尝试其他代理
+      if (e.message.includes('API Key') || e.message.includes('请求太频繁') || e.message.includes('太长')) {
+        throw e;
+      }
+      // 网络错误/CORS 错误，尝试下一个代理
+      if (e.name === 'TypeError' && e.message.includes('Failed to fetch')) {
+        console.log(`直连/代理 ${i} 被阻止，尝试下一个...`);
+        continue;
+      }
+      // 其他错误也尝试下一个
+      if (i < proxyOrder.length - 1) continue;
+      throw e;
+    }
   }
-  const data = await resp.json();
-  return data.choices[0].message.content;
+
+  // 所有代理都失败了
+  const isLocalFile = window.location.protocol === 'file:';
+  if (isLocalFile) {
+    throw new Error(
+      '⚠️ 本地文件模式下浏览器阻止了网络请求。\n\n' +
+      '解决方法（任选一种）：\n' +
+      '1.【推荐】部署到 GitHub Pages 后通过链接访问\n' +
+      '2. 用命令行启动本地服务器：在文件所在文件夹打开终端，运行 npx serve 或 python -m http.server 8000，然后打开 http://localhost:8000'
+    );
+  }
+  throw lastError || new Error('无法连接到 API 服务器，请检查网络。');
 }
 
 function parseJSON(text) {
@@ -913,12 +1027,32 @@ async function analyzeEssay() {
 
     renderResults({ grammarIssues: g, vocabSuggestions: v, rewriteSuggestions: r, structureAnalysis: s, scoreAnalysis: sc });
   } catch(e) {
-    showToast('❌ ' + e.message);
-    console.error(e);
+    console.error('Analysis error:', e);
+    // 用详细弹窗而非小 toast 显示错误
+    showErrorDetail(e.message);
   } finally {
     btn.disabled = false;
     document.getElementById('btn-text').textContent = '🔍 开始分析';
     overlay.classList.remove('active');
+  }
+}
+
+function showErrorDetail(msg) {
+  // 如果错误信息较长，用弹窗而非 toast
+  if (msg.length > 60) {
+    const div = document.createElement('div');
+    div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);z-index:999;display:flex;align-items:center;justify-content:center;';
+    div.innerHTML = `<div style="background:var(--bg-card);border:1px solid var(--accent-red);border-radius:16px;padding:28px;max-width:460px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+      <div style="font-size:18px;font-weight:700;margin-bottom:12px;">❌ 分析出错</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;white-space:pre-wrap;margin-bottom:20px;">${escapeHtml(msg)}</div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-ghost" onclick="this.closest('div[style]').remove()">关闭</button>
+        <button class="btn btn-primary" onclick="this.closest('div[style]').remove();openSettings();">检查设置</button>
+      </div>
+    </div>`;
+    document.body.appendChild(div);
+  } else {
+    showToast('❌ ' + msg);
   }
 }
 
